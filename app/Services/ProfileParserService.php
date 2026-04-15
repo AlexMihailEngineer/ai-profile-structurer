@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Exception;
+use JsonException;
 
 class ProfileParserService
 {
@@ -53,8 +54,27 @@ class ProfileParserService
 
             $data = $response->json();
 
+            if (! is_array($data)) {
+                throw new Exception('NVIDIA NIM API Error: Invalid JSON response.');
+            }
+
+            $content = $data['choices'][0]['message']['content'] ?? null;
+
+            if (! is_string($content) || $content === '') {
+                throw new Exception('NVIDIA NIM API Error: Missing response content.');
+            }
+
             // Extract the content string and decode it back into a PHP array
-            return json_decode($data['choices'][0]['message']['content'], true);
+            $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+
+            if (! is_array($decoded)) {
+                throw new Exception('NVIDIA NIM API Error: Response JSON did not decode to an object.');
+            }
+
+            return $decoded;
+        } catch (JsonException $e) {
+            Log::error('Profile Parsing Failed: Invalid JSON returned by model. ' . $e->getMessage());
+            throw new Exception('Invalid JSON returned by model.', previous: $e);
         } catch (Exception $e) {
             Log::error("Profile Parsing Failed: " . $e->getMessage());
             throw $e;

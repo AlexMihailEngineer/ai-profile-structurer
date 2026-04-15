@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Profile extends Model
 {
@@ -19,12 +21,13 @@ class Profile extends Model
     protected $casts = [
         'parsed_json' => 'array',
     ];
-    public function experiences()
+
+    public function experiences(): HasMany
     {
         return $this->hasMany(Experience::class);
     }
 
-    public function skills()
+    public function skills(): BelongsToMany
     {
         return $this->belongsToMany(Skill::class);
     }

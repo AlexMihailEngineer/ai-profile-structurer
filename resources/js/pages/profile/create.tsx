@@ -1,10 +1,10 @@
+import { Head, useForm } from '@inertiajs/react';
 import React, { useState, useEffect, useRef } from 'react';
-import { Head, useHttp, useForm } from '@inertiajs/react';
+import { checkStatus, parse, store } from '@/actions/App/Http/Controllers/ProfileController';
 import AppLayout from '@/layouts/app-layout';
 // Assuming Wayfinder naming for your routes
-import { parse, store } from '@/actions/App/Http/Controllers/ProfileController';
 
-interface experience {
+interface Experience {
     company: string;
     title: string;
     start_date: string;
@@ -12,28 +12,27 @@ interface experience {
     description: string;
 }
 
-interface profile_data {
+interface ProfileData {
     name: string;
     headline: string;
     about: string;
     location: string;
     skills: string[];
-    experiences: experience[];
+    experiences: Experience[];
 }
 
-export default function create() {
+export default function Create() {
     const [task_id, set_task_id] = useState<number | null>(null);
     const [parsing_status, set_parsing_status] = useState<'idle' | 'pending' | 'processing' | 'completed' | 'failed'>('idle');
     const [error_message, set_error_message] = useState<string | null>(null);
     const poll_timer = useRef<NodeJS.Timeout | null>(null);
 
     // 1. Initial Parse Request (Dispatches the Job)
-    const { data: parse_data, setData: set_parse_data, post: post_parse, processing: is_submitting } = useHttp({
-        raw_text: '',
-    });
+    const [raw_text, set_raw_text] = useState('');
+    const [is_submitting, set_is_submitting] = useState(false);
 
     // 2. Final Review Form (PostgreSQL Submission)
-    const { data, setData, post, processing: is_saving, errors } = useForm<profile_data & { raw_text: string }>({
+    const { data, setData, post, processing: is_saving, errors, reset } = useForm<ProfileData & { raw_text: string }>({
         name: '',
         headline: '',
         about: '',
@@ -47,7 +46,7 @@ export default function create() {
     const check_status = async (id: number) => {
         try {
             // Using standard fetch or axios for polling to avoid Inertia overhead
-            const response = await fetch(`/profiles/status/${id}`);
+            const response = await fetch(checkStatus.url(id));
             const result = await response.json();
 
             set_parsing_status(result.status);
@@ -57,7 +56,7 @@ export default function create() {
                 // Hydrate the review form with AI data
                 setData({
                     ...result.data,
-                    raw_text: parse_data.raw_text
+                    raw_text: raw_text
                 });
             } else if (result.status === 'failed') {
                 stop_polling();
@@ -75,29 +74,70 @@ export default function create() {
         }
     };
 
-    const handle_parse = (e: React.FormEvent) => {
+    const reset_form = () => {
+        stop_polling();
+        set_task_id(null);
+        set_parsing_status('idle');
+        set_error_message(null);
+        set_raw_text('');
+        reset();
+    };
+
+    const handle_parse = async (e: React.FormEvent) => {
         e.preventDefault();
         set_error_message(null);
         set_parsing_status('pending');
 
-        post_parse(parse.url(), {
-            onSuccess: (response: any) => {
-                const id = response.task_id;
-                set_task_id(id);
-                // Start polling every 3 seconds
-                poll_timer.current = setInterval(() => check_status(id), 3000);
-            },
-            onError: () => {
+        const csrf_token = document
+            .querySelector('meta[name="csrf-token"]')
+            ?.getAttribute('content');
+
+        try {
+            set_is_submitting(true);
+
+            const response = await fetch(parse.url(), {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(csrf_token ? { 'X-CSRF-TOKEN': csrf_token } : {}),
+                    'X-Requested-With': 'XMLHttpRequest',
+                    Accept: 'application/json',
+                },
+                body: JSON.stringify({ raw_text }),
+            });
+
+            if (!response.ok) {
                 set_parsing_status('idle');
                 set_error_message('failed to start parsing task.');
+
+                return;
             }
-        });
+
+            const result = await response.json();
+            const id = result.task_id;
+
+            if (typeof id !== 'number') {
+                set_parsing_status('idle');
+                set_error_message('failed to start parsing task.');
+
+                return;
+            }
+
+            set_task_id(id);
+            poll_timer.current = setInterval(() => check_status(id), 3000);
+        } catch {
+            set_parsing_status('idle');
+            set_error_message('failed to start parsing task.');
+        } finally {
+            set_is_submitting(false);
+        }
     };
 
     // Cleanup interval on unmount
     useEffect(() => () => stop_polling(), []);
 
-    const update_exp = (idx: number, field: keyof experience, val: string) => {
+    const update_exp = (idx: number, field: keyof Experience, val: string) => {
         const new_exps = [...data.experiences];
         new_exps[idx][field] = val;
         setData('experiences', new_exps);
@@ -124,8 +164,8 @@ export default function create() {
                                     <textarea
                                         className="h-64 w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono text-sm"
                                         placeholder="paste full profile content here..."
-                                        value={parse_data.raw_text}
-                                        onChange={(e) => set_parse_data('raw_text', e.target.value)}
+                                        value={raw_text}
+                                        onChange={(e) => set_raw_text(e.target.value)}
                                         disabled={parsing_status !== 'idle' && parsing_status !== 'failed'}
                                     />
                                     
@@ -155,10 +195,16 @@ export default function create() {
 
                         {/* STEP 2: THE REVIEW FORM */}
                         {parsing_status === 'completed' && (
-                            <form onSubmit={(e) => { e.preventDefault(); post(store.url()); }} className="space-y-6">
+                            <form onSubmit={(e) => {
+ e.preventDefault();
+ post(store.url(), {
+     onSuccess: () => reset_form(),
+     preserveState: false,
+ });
+}} className="space-y-6">
                                 <div className="flex items-center justify-between border-b pb-2">
                                     <h3 className="text-lg font-bold text-gray-700 lowercase">review & correct</h3>
-                                    <button type="button" onClick={() => set_parsing_status('idle')} className="text-xs text-gray-400 hover:text-red-500 lowercase">[restart]</button>
+                                    <button type="button" onClick={() => reset_form()} className="text-xs text-gray-400 hover:text-red-500 lowercase">[restart]</button>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">

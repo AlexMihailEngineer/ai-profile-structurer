@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Profile;
 use App\Models\Skill;
-use App\Services\ProfileParserService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -58,8 +57,8 @@ class ProfileController extends Controller
             'about' => 'nullable|string',
             'location' => 'nullable|string|max:255',
             'raw_text' => 'required|string',
-            'skills' => 'array',
-            'experiences' => 'array',
+            'skills' => 'sometimes|array',
+            'experiences' => 'sometimes|array',
             'experiences.*.company' => 'required|string',
             'experiences.*.title' => 'required|string',
             'experiences.*.description' => 'nullable|string',
@@ -81,13 +80,13 @@ class ProfileController extends Controller
             ]);
 
             // Create experiences via relationship
-            foreach ($validated['experiences'] as $exp) {
+            foreach (($validated['experiences'] ?? []) as $exp) {
                 $profile->experiences()->create($exp);
             }
 
             // Handle skills (Many-to-Many)
             $skillIds = [];
-            foreach ($validated['skills'] as $skillName) {
+            foreach (($validated['skills'] ?? []) as $skillName) {
                 // firstOrCreate prevents duplicate skills in the master list
                 $skill = Skill::firstOrCreate([
                     'name' => strtolower(trim($skillName))
@@ -99,9 +98,7 @@ class ProfileController extends Controller
             $profile->skills()->sync($skillIds);
         });
 
-        // 3. Redirect to a list view (or wherever you'd like to see the result)
-        // return redirect()->route('profiles.index')
-        //     ->with('message', 'profile structured and saved successfully.');
+        return redirect()->route('profiles.create');
     }
 
     /**
