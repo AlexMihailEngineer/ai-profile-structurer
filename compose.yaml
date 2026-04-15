@@ -24,6 +24,7 @@ services:
         depends_on:
             - pgsql
             - redis
+    
     pgsql:
         image: 'postgres:18-alpine'
         ports:
@@ -49,6 +50,7 @@ services:
                 - '${DB_USERNAME}'
             retries: 3
             timeout: 5s
+            
     redis:
         image: 'redis:alpine'
         ports:
@@ -64,6 +66,28 @@ services:
                 - ping
             retries: 3
             timeout: 5s
+
+    # --- NEW: Data Science & ML Environment ---
+    jupyter:
+        image: 'jupyter/scipy-notebook:latest'
+        ports:
+            - '${FORWARD_JUPYTER_PORT:-8888}:8888'
+        environment:
+            JUPYTER_ENABLE_LAB: 'yes'
+            # Pass Laravel's DB credentials into Python's environment
+            DB_HOST: 'pgsql'
+            DB_PORT: '5432'
+            DB_DATABASE: '${DB_DATABASE}'
+            DB_USERNAME: '${DB_USERNAME}'
+            DB_PASSWORD: '${DB_PASSWORD:-secret}'
+        volumes:
+            # Maps a local 'notebooks' folder to Jupyter's working directory
+            - './notebooks:/home/jovyan/work:z'
+        networks:
+            - sail
+        depends_on:
+            - pgsql
+
 networks:
     sail:
         driver: bridge
