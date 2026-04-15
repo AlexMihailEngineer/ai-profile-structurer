@@ -57,4 +57,9 @@ class ParseProfileJob implements ShouldQueue
             throw $e; // Throwing allows the queue to handle retries
         }
     }
+
+    public function middleware(): array
+    {
+        return [new \Illuminate\Queue\Middleware\RateLimited('nvidia-api')];
+    }
 }
